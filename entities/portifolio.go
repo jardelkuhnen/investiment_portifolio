@@ -125,7 +125,25 @@ func (p *Portfolio) RebalanceSuggestion(contribution float64) []Suggestion {
 
 		// Distribute allocation equally among all assets in the class to balance their quantities
 		// TODO evolucionate the code to distribute the allocation based on the assets scores
-		equalAlloc := alloc / float64(len(assets))
+		// First, calculate the total amount needed to bring all classes to their targets (sum of ToInvest)
+		var totalToInvest float64
+		for _, b := range balances {
+			totalToInvest += b.ToInvest
+		}
+		// If totalToInvest is zero (all classes at or above target), just skip
+		if totalToInvest == 0 {
+			break
+		}
+		// Calculate the percentage of allocation for this class based on its ToInvest
+		classAlloc := alloc
+		if totalToInvest > 0 {
+			classAlloc = (bal.ToInvest / totalToInvest) * remaining
+			if classAlloc > alloc {
+				classAlloc = alloc // Don't allocate more than this class needs
+			}
+		}
+		// Distribute classAlloc equally among assets in the class (could be improved to use scores)
+		equalAlloc := classAlloc / float64(len(assets))
 		for _, asset := range assets {
 			suggestions = append(suggestions, Suggestion{
 				AssetID:   asset.ID,
@@ -133,9 +151,35 @@ func (p *Portfolio) RebalanceSuggestion(contribution float64) []Suggestion {
 				Amount:    equalAlloc,
 			})
 		}
-		remaining -= alloc
+		remaining -= classAlloc
 
 	}
 
 	return suggestions
+}
+
+func (p *Portfolio) GroupAllocationByClass(suggestions []Suggestion, actualPortifolio Portfolio) (map[int]float64, map[int]string) {
+	// Group allocation by class
+	classAllocations := make(map[int]float64)
+	classNames := make(map[int]string)
+	for _, s := range suggestions {
+		// Find the class of this asset
+		for _, asset := range actualPortifolio.Assets {
+			if asset.ID == s.AssetID {
+				classAllocations[asset.ClassID] += s.Amount
+				// Save class name for output
+				if _, ok := classNames[asset.ClassID]; !ok {
+					for _, class := range actualPortifolio.AssetClasses {
+						if class.ID == asset.ClassID {
+							classNames[asset.ClassID] = class.Name
+							break
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	return classAllocations, classNames
 }
